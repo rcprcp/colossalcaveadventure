@@ -39,6 +39,8 @@ module advent_mod
   character(len=256) :: TEXT_LINES(LINSIZ)
   integer(kind=i64p) :: LINUSE = 1_i64
   integer(kind=i64p) :: CLSSES = 1_i64
+  integer(kind=i64p) :: OLDLOC = -1_i64
+  integer(kind=i64p) :: TRVS = 1_i64
 
   ! Logical flags
   logical :: DSEEN(6), BLKLIN, HINTED_LOGICAL, YES, START
@@ -108,6 +110,42 @@ contains
     val = 0_i64
   end function ia5
 
+  ! Parse integers from a line string into arr(1..maxn), return count in nfound
+  subroutine parse_integers(line, arr, maxn, nfound)
+    character(len=*), intent(in) :: line
+    integer(kind=i64p), intent(out) :: arr(*)
+    integer(kind=i64p), intent(in) :: maxn
+    integer(kind=i64p), intent(out) :: nfound
+    integer :: pos, len_line, start, ios
+    character(len=:), allocatable :: token
+    integer(kind=i64p) :: val
+    integer :: count
+
+    len_line = len_trim(line)
+    pos = 1
+    count = 0
+
+    do while (pos <= len_line .and. count < int(maxn))
+      ! skip spaces
+      do while (pos <= len_line .and. line(pos:pos) == ' ')
+        pos = pos + 1
+      end do
+      if (pos > len_line) exit
+      start = pos
+      do while (pos <= len_line .and. line(pos:pos) /= ' ')
+        pos = pos + 1
+      end do
+      token = line(start:pos-1)
+      read(token, *, iostat=ios) val
+      if (ios == 0) then
+        count = count + 1
+        arr(count) = val
+      end if
+    end do
+
+    nfound = count
+  end subroutine parse_integers
+
   ! Read the ADVENT database file (refactored from computed GOTO loop in original)
   subroutine read_database()
     integer(kind=i64p) :: sect
@@ -118,6 +156,12 @@ contains
       print '(A)', 'Error: could not open ADVENT data file: '//trim(DATA_FILENAME)
       return
     end if
+
+    ! initialize counters (mirrors original behavior)
+    LINUSE = 1_i64
+    TRVS = 1_i64
+    CLSSES = 1_i64
+    OLDLOC = -1_i64
 
     do
       read(1, *, iostat=ios) sect
@@ -163,13 +207,14 @@ contains
     print *, 'Finished reading ADVENT database from ', trim(DATA_FILENAME)
   end subroutine read_database
 
-  ! Handler: parse sections 1,2,5,6,10,12 and store lines in TEXT_LINES.
+  ! Handler: parse sections 1,2,5,6,10,12 and store lines into TEXT_LINES and
+  ! reconstruct original pointer encoding in LINES[] so legacy code can use it.
   subroutine handle_section_messages(n)
     integer(kind=i64p), intent(in) :: n
-    character(len=256) :: rec, s, rest
-    integer(kind=i64p) :: loc
-    character(len=32) :: intstr
-    integer :: ios, pos
+    character(len=256) :: rec, s, rest, chunk
+    integer(kind=i64p) :: loc, lenr, nchunks, startpos, endpos
+    integer(kind=i64p) :: p, next, k, m
+    integer :: ios
 
     do
       read(1, '(A)', iostat=ios) rec
@@ -188,43 +233,150 @@ contains
         call BUG(1_i64)
       end if
       if (loc == -1_i64) exit
+
+      ! extract the rest of the line after the integer
+      ! write integer to string and find its position
+      character(len=32) :: intstr
       write(intstr, '(I0)') loc
-      pos = index(s, trim(intstr))
+      integer :: pos
+      pos = index(s, adjustl(intstr))
       if (pos > 0) then
-        rest = s(pos + len_trim(intstr):)
+        rest = adjustl(s(pos + len_trim(adjustl(intstr)) :))
       else
-        rest = s
+        rest = ''
       end if
       rest = trim(rest)
 
-      if (LINUSE > LINSIZ) call BUG(2_i64)
-      TEXT_LINES(LINUSE) = rest
+      ! Before storing, check space
+      ! compute how many 5-char chunks we'll need
+      lenr = len_trim(rest)
+      if (lenr <= 0_i64) then
+        nchunks = 0_i64
+      else
+        nchunks = ( (lenr - 1_i64) / 5_i64 ) + 1_i64
+      end if
 
+      ! Each record stores a pointer word at position p = LINUSE, followed by nchunks packed words.
+      p = LINUSE
+      next = LINUSE + 1_i64
+      if (next + nchunks - 1_i64 > LINSIZ) call BUG(2_i64)
+
+      ! store the textual copy for human readability
+      TEXT_LINES(int(p)) = rest
+
+      ! pack each 5-char chunk into an integer and store in LINES[next ...]
+      do k = 1_i64, nchunks
+        startpos = (k - 1_i64) * 5_i64 + 1_i64
+        endpos = min(startpos + 4_i64, lenr)
+        chunk = ''
+        if (lenr >= startpos) then
+          chunk = rest( int(startpos) : int(endpos) )
+        end if
+        ! pad to 5 chars
+        if (len_trim(chunk) < 5) chunk = chunk // repeat(' ', 5 - len_trim(chunk))
+        ! pack into 64-bit integer as big-endian sequence
+        integer(kind=i64p) :: pack
+        pack = 0_i64
+        do m = 1_i64, 5_i64
+          pack = pack * 256_i64 + int(iachar(chunk(int(m))), kind=i64p)
+        end do
+        LINES( int(next) ) = pack
+        next = next + 1_i64
+      end do
+
+      ! set pointer value to index after last packed word
+      integer(kind=i64p) :: pointer_val
+      pointer_val = next
+
+      ! if this is the first line for this LOC (LOC != OLDLOC), make pointer negative
+      if (loc /= OLDLOC) then
+        LINES( int(p) ) = -pointer_val
+      else
+        LINES( int(p) ) = pointer_val
+      end if
+
+      ! set appropriate text pointers (point to the pointer-word index p)
       select case (n)
       case (1_i64)
-        if (LTEXT(loc) == 0_i64) LTEXT(loc) = LINUSE
+        if (LTEXT(int(loc)) == 0_i64) LTEXT(int(loc)) = p
       case (2_i64)
-        if (STEXT(loc) == 0_i64) STEXT(loc) = LINUSE
+        if (STEXT(int(loc)) == 0_i64) STEXT(int(loc)) = p
       case (5_i64)
-        if (loc > 0_i64 .and. loc <= 100_i64) PTEXT(loc) = LINUSE
+        if (loc > 0_i64 .and. loc <= 100_i64) PTEXT(int(loc)) = p
       case (6_i64)
-        if (loc > 0_i64 .and. loc <= RTXSIZ) RTEXT(loc) = LINUSE
+        if (loc > 0_i64 .and. loc <= RTXSIZ) RTEXT(int(loc)) = p
       case (10_i64)
         if (CLSSES > CLSMAX) call BUG(6_i64)
-        CTEXT(CLSSES) = LINUSE
-        CVAL(CLSSES) = loc
+        CTEXT( int(CLSSES) ) = p
+        CVAL( int(CLSSES) ) = loc
         CLSSES = CLSSES + 1_i64
       case (12_i64)
-        if (loc > 0_i64 .and. loc <= MAGSIZ) MTEXT(loc) = LINUSE
+        if (loc > 0_i64 .and. loc <= MAGSIZ) MTEXT(int(loc)) = p
       end select
 
-      LINUSE = LINUSE + 1_i64
+      ! advance LINUSE to next free pointer and mark LINES(LINUSE) = -1 (end marker)
+      LINUSE = next
+      if (LINUSE <= LINSIZ) LINES( int(LINUSE) ) = -1_i64
+
+      OLDLOC = loc
+
     end do
 
   end subroutine handle_section_messages
 
+  ! Implement Section 3: travel table parser
   subroutine handle_travel_table()
-    print '(A)', 'handle_travel_table: not yet implemented (WIP)'
+    character(len=256) :: rec
+    integer(kind=i64p), allocatable :: vals(:)
+    integer(kind=i64p) :: nvals
+    integer(kind=i64p) :: loc, newloc
+    integer(kind=i64p) :: i, tk
+    integer :: ios
+
+    allocate(vals(22))
+
+    do
+      read(1, '(A)', iostat=ios) rec
+      if (ios /= 0) then
+        if (ios > 0) then
+          exit
+        else
+          call BUG(3_i64)
+        end if
+      end if
+
+      call parse_integers(rec, vals, 22_i64, nvals)
+      if (nvals == 0_i64) cycle
+      loc = vals(1)
+      if (loc == -1_i64) then
+        ! end of section
+        exit
+      end if
+      if (loc == 0_i64) cycle
+      if (nvals < 2_i64) call BUG(4_i64)
+      newloc = vals(2)
+
+      if (KEY(int(loc)) == 0_i64) then
+        KEY(int(loc)) = TRVS
+      else
+        TRAVEL(int(TRVS-1)) = -TRAVEL(int(TRVS-1))
+      end if
+
+      ! process motion numbers (starting at vals(3) .. vals(nvals))
+      do i = 3_i64, nvals
+        tk = vals(int(i))
+        if (tk == 0_i64) exit
+        TRAVEL(int(TRVS)) = newloc * 1000_i64 + tk
+        TRVS = TRVS + 1_i64
+        if (TRVS == TRVSIZ) call BUG(3_i64)
+      end do
+
+      ! mark last entry negative per original
+      if (TRVS > 1_i64) TRAVEL(int(TRVS-1)) = -TRAVEL(int(TRVS-1))
+
+    end do
+
+    deallocate(vals)
   end subroutine handle_travel_table
 
   subroutine handle_vocabulary()
