@@ -1,22 +1,23 @@
-! Main program entry point for the Fortran 2023 ADVENT conversion.
+! Main program entry point for the Fortran 2023 ADVENT port.
+! Build order (compile these in order):
+!   advent_f2023_full.f90   (advent_mod + compat_mod)
+!   io_mod.f90
+!   data_mod.f90
+!   section_parsers.f90
+!   game_mod.f90
+!   advent_main.f90
 program advent_main
   use advent_mod
-  use compat_mod
   use section_parsers_mod
+  use game_mod
   implicit none
 
-  print *, 'Starting Fortran2023 converted ADVENT (stage 2 WIP)'
-  print *, 'Reading ADVENT data file: ', trim(DATA_FILENAME)
+  print '(A)', ' Initializing...'
 
   call read_database()
-
   call finalize_database()
 
-  print *, 'Database read (WIP). Continuing conversion in further commits.'
-
-  ! The original program immediately did initialization based on SETUP.
-  ! Call POOF as a placeholder until full game loop is wired in.
-  call POOF()
-  print *, 'WIP scaffolding initialization complete.'
+  call GAME_INIT()
+  call GAME_LOOP()
 
 end program advent_main

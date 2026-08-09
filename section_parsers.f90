@@ -24,7 +24,7 @@ contains
     LINUSE = 1_int64
     TRVS   = 1_int64
     CLSSES = 1_int64
-    OLDLOC = -1_int64
+    OLDLOC_DB = -1_int64
 
     do
       read(1, *, iostat=ios) sect
@@ -90,15 +90,23 @@ contains
       if (ios /= 0) call BUG(1_int64)
       if (loc == -1_int64) exit
 
-      ! Extract the text after the leading integer.
-      write(intstr, '(I0)') loc
-      pos = index(s, adjustl(intstr))
-      if (pos > 0) then
-        rest = adjustl(s(pos + len_trim(adjustl(intstr)) :))
-      else
-        rest = ''
-      end if
-      rest = trim(rest)
+      ! Extract text after the leading integer token in s (handles tabs, leading zeros)
+      pos = 1
+      ! skip optional sign
+      if (pos <= len(s) .and. (s(pos:pos) == '-' .or. s(pos:pos) == '+')) pos = pos + 1
+      ! skip all digit characters
+      do while (pos <= len(s) .and. s(pos:pos) >= '0' .and. s(pos:pos) <= '9')
+        pos = pos + 1
+      end do
+      ! skip whitespace delimiter (spaces or tabs)
+      do while (pos <= len(s) .and. (s(pos:pos) == ' ' .or. s(pos:pos) == char(9)))
+        pos = pos + 1
+      end do
+      rest = trim(s(pos:))
+      ! Replace embedded tab characters with spaces
+      do pos = 1, len_trim(rest)
+        if (rest(pos:pos) == char(9)) rest(pos:pos) = ' '
+      end do
 
       lenr = len_trim(rest)
       if (lenr <= 0_int64) then
@@ -112,6 +120,7 @@ contains
       if (next + nchunks - 1_int64 > LINSIZ) call BUG(2_int64)
 
       if (int(p) >= 1 .and. int(p) <= LINSIZ) TEXT_LINES(int(p)) = rest
+
 
       ! Pack each 5-char chunk into a 64-bit integer.
       do k = 1_int64, nchunks
@@ -130,41 +139,43 @@ contains
 
       pointer_val = next
       if (int(p) >= 1 .and. int(p) <= LINSIZ) then
-        if (loc /= OLDLOC) then
+        if (loc /= OLDLOC_DB) then
           LINES(int(p)) = -pointer_val
         else
           LINES(int(p)) = pointer_val
         end if
       end if
 
-      ! Set the section-specific text pointer on first encounter.
-      select case (n)
-      case (1_int64)
-        if (int(loc) >= 1 .and. int(loc) <= LOCSIZ) then
-          if (LTEXT(int(loc)) == 0_int64) LTEXT(int(loc)) = p
-        end if
-      case (2_int64)
-        if (int(loc) >= 1 .and. int(loc) <= LOCSIZ) then
-          if (STEXT(int(loc)) == 0_int64) STEXT(int(loc)) = p
-        end if
-      case (5_int64)
-        if (int(loc) >= 1 .and. int(loc) <= 100) PTEXT(int(loc)) = p
-      case (6_int64)
-        if (int(loc) >= 1 .and. int(loc) <= RTXSIZ) RTEXT(int(loc)) = p
-      case (10_int64)
-        if (CLSSES > CLSMAX) call BUG(6_int64)
-        if (int(CLSSES) >= 1 .and. int(CLSSES) <= CLSMAX) then
-          CTEXT(int(CLSSES)) = p
-          CVAL(int(CLSSES))  = loc
-        end if
-        CLSSES = CLSSES + 1_int64
-      case (12_int64)
-        if (int(loc) >= 1 .and. int(loc) <= MAGSIZ) MTEXT(int(loc)) = p
-      end select
+      ! Set the section-specific text pointer on first encounter (new loc only).
+      if (loc /= OLDLOC_DB) then
+        select case (n)
+        case (1_int64)
+          if (int(loc) >= 1 .and. int(loc) <= LOCSIZ) then
+            if (LTEXT(int(loc)) == 0_int64) LTEXT(int(loc)) = p
+          end if
+        case (2_int64)
+          if (int(loc) >= 1 .and. int(loc) <= LOCSIZ) then
+            if (STEXT(int(loc)) == 0_int64) STEXT(int(loc)) = p
+          end if
+        case (5_int64)
+          if (int(loc) >= 1 .and. int(loc) <= 100) PTEXT(int(loc)) = p
+        case (6_int64)
+          if (int(loc) >= 1 .and. int(loc) <= RTXSIZ) RTEXT(int(loc)) = p
+        case (10_int64)
+          if (CLSSES > CLSMAX) call BUG(6_int64)
+          if (int(CLSSES) >= 1 .and. int(CLSSES) <= CLSMAX) then
+            CTEXT(int(CLSSES)) = p
+            CVAL(int(CLSSES))  = loc
+          end if
+          CLSSES = CLSSES + 1_int64
+        case (12_int64)
+          if (int(loc) >= 1 .and. int(loc) <= MAGSIZ) MTEXT(int(loc)) = p
+        end select
+      end if
 
       LINUSE = next
       if (LINUSE <= LINSIZ) LINES(int(LINUSE)) = -1_int64
-      OLDLOC = loc
+      OLDLOC_DB = loc
     end do
   end subroutine handle_section_messages
 
@@ -253,9 +264,14 @@ contains
         exit
       end if
       write(intstr, '(I0)') n
-      pos = index(adjustl(rec), adjustl(intstr))
+      pos = index(adjustl(rec), trim(intstr))
       if (pos > 0) then
-        w = adjustl(rec(pos + len_trim(adjustl(intstr)) :))
+        pos = pos + len_trim(intstr)
+        ! skip whitespace (spaces or tabs) after the integer
+        do while (pos <= len(rec) .and. (rec(pos:pos) == ' ' .or. rec(pos:pos) == char(9)))
+          pos = pos + 1
+        end do
+        w = rec(pos:pos+4)
       else
         w = '     '
       end if
@@ -353,12 +369,11 @@ contains
       if (nvals == 0_int64) cycle
       k = vals(1)
       if (k == -1_int64) exit
-      if (k == 0_int64) cycle
       do i = 2, int(nvals)
         loc = vals(i)
         if (loc == 0_int64) exit
         if (int(loc) >= 1 .and. int(loc) <= LOCSIZ) then
-          if (BITSET_fn(loc, k)) call BUG(8_int64)
+          if (iand(COND(int(loc)), ishift64(1_int64, int(k))) /= 0_int64) call BUG(8_int64)
           COND(int(loc)) = COND(int(loc)) + ishift64(1_int64, int(k))
         end if
       end do
