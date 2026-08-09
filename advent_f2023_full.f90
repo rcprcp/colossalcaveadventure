@@ -240,9 +240,10 @@ contains
   subroutine handle_section_messages(n)
     integer(kind=i64p), intent(in) :: n
     character(len=256) :: rec, s, rest, chunk
+    character(len=32) :: intstr
     integer(kind=i64p) :: loc, lenr, nchunks, startpos, endpos
-    integer(kind=i64p) :: p, next, k, m
-    integer :: ios
+    integer(kind=i64p) :: p, next, k, m, pack, pointer_val
+    integer :: ios, pos
 
     do
       read(1, '(A)', iostat=ios) rec
@@ -263,10 +264,7 @@ contains
       if (loc == -1_i64) exit
 
       ! extract the rest of the line after the integer
-      ! write integer to string and find its position
-      character(len=32) :: intstr
       write(intstr, '(I0)') loc
-      integer :: pos
       pos = index(s, adjustl(intstr))
       if (pos > 0) then
         rest = adjustl(s(pos + len_trim(adjustl(intstr)) :))
@@ -303,7 +301,6 @@ contains
         ! pad to 5 chars
         if (len_trim(chunk) < 5) chunk = chunk // repeat(' ', 5 - len_trim(chunk))
         ! pack into 64-bit integer as big-endian sequence
-        integer(kind=i64p) :: pack
         pack = 0_i64
         do m = 1_i64, 5_i64
           pack = pack * 256_i64 + int(iachar(chunk(int(m))), kind=i64p)
@@ -313,7 +310,6 @@ contains
       end do
 
       ! set pointer value to index after last packed word
-      integer(kind=i64p) :: pointer_val
       pointer_val = next
 
       ! if this is the first line for this LOC (LOC != OLDLOC), make pointer negative
@@ -410,10 +406,10 @@ contains
   ! Implement Section 4: vocabulary parsing
   subroutine handle_vocabulary()
     character(len=256) :: rec
-    integer :: ios
-    integer :: tabndx
-    integer(kind=i64p) :: n
+    character(len=32) :: intstr
     character(len=5) :: w
+    integer :: ios, tabndx, pos
+    integer(kind=i64p) :: n
     integer(kind=i64p) :: packed, phrog
 
     phrog = ia5('PHROG')
@@ -437,8 +433,6 @@ contains
         exit
       end if
       ! extract 5-char field after integer; find position of integer in line
-      character(len=32) :: intstr
-      integer :: pos
       write(intstr, '(I0)') n
       pos = index(adjustl(rec), adjustl(intstr))
       if (pos > 0) then
@@ -607,6 +601,7 @@ contains
   ! Finalize database: build ATLOC/LINK lists, copy PLACE/FIXED, set forced-motion COND bits, init PROP and counts
   subroutine finalize_database()
     integer(kind=i64p) :: i, k, obj
+    integer(kind=i64p) :: MAXTRS, TALLY, TALLY2, I_idx
 
     ! Initialize link/atloc/place/prop arrays
     do i = 1, 100
@@ -644,13 +639,12 @@ contains
 
     ! Initialize treasures tally
     ! MAXTRS is defined in original; use 79 as original
-    integer(kind=i64p) :: MAXTRS, TALLY, TALLY2, I
     MAXTRS = 79_i64
     TALLY = 0_i64
     TALLY2 = 0_i64
-    do I = 50_i64, MAXTRS
-      if (PTEXT(int(I)) /= 0_i64) PROP(int(I)) = -1_i64
-      TALLY = TALLY - PROP(int(I))
+    do I_idx = 50_i64, MAXTRS
+      if (PTEXT(int(I_idx)) /= 0_i64) PROP(int(I_idx)) = -1_i64
+      TALLY = TALLY - PROP(int(I_idx))
     end do
 
   end subroutine finalize_database
