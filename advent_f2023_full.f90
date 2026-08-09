@@ -710,9 +710,6 @@ program advent_main
 
   call finalize_database()
 
-  ! temporary debug dump of travel entries for location 15
-  call dump_travel_sample(KEY, TRAVEL, 15_int64)
-
   print *, 'Database read (WIP). Continuing conversion in further commits.'
 
   ! The original program immediately did initialization based on SETUP
