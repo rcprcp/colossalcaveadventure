@@ -1,7 +1,7 @@
 ! Full conversion attempt of advent.for to Fortran 2023 (stage 2 draft)
 module advent_mod
   use iso_fortran_env, only: int64
-  use compat_mod, only: i64, ishift64, bitset64, RAN, VOCAB, RSPEAK, SPEAK, PSPEAK, DROP, MOVE, CARRY, GETIN, A5TOA1, POOF, MAINT, BUG
+  use compat_mod, only: i64, ishift64, bitset64, RAN, RSPEAK, SPEAK, PSPEAK, DROP, MOVE, CARRY, GETIN, A5TOA1, POOF, MAINT, BUG
   implicit none
 
   integer, parameter :: i64p = i64
@@ -86,7 +86,7 @@ contains
     logical :: res
     ! PROP(LAMP) == 0 means lamp has no battery? Align with original: DARK(DUMMY)=MOD(COND(LOC),2).EQ.0.AND.(PROP(LAMP).EQ.0.OR.
     !                                                    .NOT.HERE(LAMP))
-    res = (mod(COND(loc), 2_i64) == 0_i64) .and. ((PROP( get_vocab_lamp()) == 0_i64) .or. .not. HERE(get_vocab_lamp(), loc))
+    res = (mod(COND(loc), 2_i64) == 0_i64) .and. ((PROP(get_vocab_lamp()) == 0_i64) .or. .not. HERE(get_vocab_lamp(), loc))
   end function DARK
 
   pure function PCT(n) result(res)
@@ -95,20 +95,47 @@ contains
     res = (RAN(100_i64) < n)
   end function PCT
 
-  ! Helper to return VOCAB LAMP object number (we call VOCAB function)
+  ! Helper to return VOCAB LAMP object number (we call VOCAB function defined below)
   pure function get_vocab_lamp() result(id)
     integer(kind=i64p) :: id
-    id = VOCAB(0_i64 + ia5('LAMP'), 1_i64)
+    id = VOCAB(ia5('LAMP'), 1_i64)
   end function get_vocab_lamp
 
   ! Minimal translator for 5-char literals to integer used by VOCAB indices
   pure function ia5(str) result(val)
     character(len=*), intent(in) :: str
     integer(kind=i64p) :: val
-    ! This is a stub to keep the original expressions compiling. Real VOCAB mapping
-    ! relies on the KTAB/ATAB table; here we return 0 to avoid accidental uses.
+    integer :: i, clen
+    character(len=5) :: s
     val = 0_i64
+    s = adjustl(str)//repeat(' ', max(0,5-len_trim(str)))
+    do i = 1, 5
+      val = val * 256_i64 + int(iachar(s(i:i)), kind=i64p)
+    end do
   end function ia5
+
+  ! VOCAB lookup: given a packed 5-char integer 'a' and a type b (0 motion,1 object,2 action,3 special)
+  ! Return KTAB value (the full numeric code) or -1 if not found.
+  pure function VOCAB(a, b) result(res)
+    integer(kind=i64p), intent(in) :: a, b
+    integer(kind=i64p) :: res
+    integer :: i
+    integer(kind=i64p) :: phrog, decoded
+
+    ! pack 'PHROG' same way
+    phrog = ia5('PHROG')
+
+    res = -1_i64
+    do i = 1, TABSIZ
+      if (KTAB(i) == 0_i64) cycle
+      if (KTAB(i) == -1_i64) exit
+      decoded = ieor(ATAB(i), phrog)
+      if (decoded == a .and. (KTAB(i) / 1000_i64) == b) then
+        res = KTAB(i)
+        return
+      end if
+    end do
+  end function VOCAB
 
   ! Parse integers from a line string into arr(1..maxn), return count in nfound
   subroutine parse_integers(line, arr, maxn, nfound)
@@ -116,8 +143,8 @@ contains
     integer(kind=i64p), intent(out) :: arr(*)
     integer(kind=i64p), intent(in) :: maxn
     integer(kind=i64p), intent(out) :: nfound
-    integer :: pos, len_line, start, ios
-    character(len=:), allocatable :: token
+    integer :: pos, len_line, start, ios, i
+    character(len=256) :: token
     integer(kind=i64p) :: val
     integer :: count
 
@@ -135,7 +162,7 @@ contains
       do while (pos <= len_line .and. line(pos:pos) /= ' ')
         pos = pos + 1
       end do
-      token = line(start:pos-1)
+      token = adjustl(line(start:pos-1))
       read(token, *, iostat=ios) val
       if (ios == 0) then
         count = count + 1
@@ -379,8 +406,56 @@ contains
     deallocate(vals)
   end subroutine handle_travel_table
 
+  ! Implement Section 4: vocabulary parsing
   subroutine handle_vocabulary()
-    print '(A)', 'handle_vocabulary: not yet implemented (WIP)'
+    character(len=256) :: rec
+    integer :: ios
+    integer :: tabndx
+    integer(kind=i64p) :: n
+    character(len=5) :: w
+    integer(kind=i64p) :: packed, phrog
+
+    phrog = ia5('PHROG')
+
+    tabndx = 1
+    do
+      read(1, '(A)', iostat=ios) rec
+      if (ios /= 0) then
+        if (ios > 0) then
+          exit
+        else
+          call BUG(5_i64)
+        end if
+      end if
+      if (len_trim(rec) == 0) cycle
+      ! parse leading integer and following 5-char word (word may be padded or longer)
+      read(rec, *, iostat=ios) n
+      if (ios /= 0) call BUG(6_i64)
+      if (n == -1_i64) then
+        KTAB(tabndx) = -1_i64
+        exit
+      end if
+      ! extract 5-char field after integer; find position of integer in line
+      character(len=32) :: intstr
+      integer :: pos
+      write(intstr, '(I0)') n
+      pos = index(adjustl(rec), adjustl(intstr))
+      if (pos > 0) then
+        w = adjustl(rec(pos + len_trim(adjustl(intstr)) :))
+      else
+        w = '     '
+      end if
+      w = adjustl(w)//repeat(' ', max(0,5-len_trim(w)))
+      w = w(1:5)
+      ! pack into integer
+      packed = ia5(w)
+      ! apply obfuscation to match original ATAB = ATAB XOR 'PHROG'
+      ATAB(tabndx) = ieor(packed, phrog)
+      KTAB(tabndx) = n
+      tabndx = tabndx + 1
+      if (tabndx > TABSIZ) call BUG(4_i64)
+    end do
+
   end subroutine handle_vocabulary
 
   subroutine handle_object_descriptions()
@@ -427,12 +502,16 @@ end module advent_mod
 program advent_main
   use advent_mod
   use compat_mod
+  use debug_mod
   implicit none
 
   print *, 'Starting Fortran2023 converted ADVENT (stage 2 WIP)'
   print *, 'Reading ADVENT data file: ', trim(DATA_FILENAME)
 
   call read_database()
+
+  ! temporary debug dump of travel entries for location 15
+  call dump_travel_sample(KEY, TRAVEL, 15_int64)
 
   print *, 'Database read (WIP). Continuing conversion in further commits.'
 
