@@ -143,10 +143,3 @@ contains
     end do
   end subroutine dump_travel_sample
 end module debug_mod
-
-program advent_scaffold
-  use compat_mod
-  implicit none
-  print *, 'Fortran2023 scaffolding for advent: compat_mod updated.'
-  print *, 'Stage 1 scaffolding improved: RAN/VOCAB/BUG use 64-bit kinds.'
-end program advent_scaffold
