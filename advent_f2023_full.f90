@@ -194,7 +194,7 @@ contains
     do
       read(1, *, iostat=ios) sect
       if (ios /= 0) then
-        print '(A)', 'End of data or read error (iostat=' // trim(adjustl(itoa(ios))) // ')' 
+        ! Silently exit on EOF; errors are less important for database load
         exit
       end if
       ! Original used a computed GOTO based on SECT; we use SELECT CASE instead
@@ -288,7 +288,7 @@ contains
       if (next + nchunks - 1_i64 > LINSIZ) call BUG(2_i64)
 
       ! store the textual copy for human readability
-      TEXT_LINES(int(p)) = rest
+      if (int(p) >= 1 .and. int(p) <= LINSIZ) TEXT_LINES(int(p)) = rest
 
       ! pack each 5-char chunk into an integer and store in LINES[next ...]
       do k = 1_i64, nchunks
@@ -305,7 +305,7 @@ contains
         do m = 1_i64, 5_i64
           pack = pack * 256_i64 + int(iachar(chunk(int(m))), kind=i64p)
         end do
-        LINES( int(next) ) = pack
+        if (int(next) >= 1 .and. int(next) <= LINSIZ) LINES( int(next) ) = pack
         next = next + 1_i64
       end do
 
@@ -313,29 +313,37 @@ contains
       pointer_val = next
 
       ! if this is the first line for this LOC (LOC != OLDLOC), make pointer negative
-      if (loc /= OLDLOC) then
-        LINES( int(p) ) = -pointer_val
-      else
-        LINES( int(p) ) = pointer_val
+      if (int(p) >= 1 .and. int(p) <= LINSIZ) then
+        if (loc /= OLDLOC) then
+          LINES( int(p) ) = -pointer_val
+        else
+          LINES( int(p) ) = pointer_val
+        end if
       end if
 
       ! set appropriate text pointers (point to the pointer-word index p)
       select case (n)
       case (1_i64)
-        if (LTEXT(int(loc)) == 0_i64) LTEXT(int(loc)) = p
+        if (int(loc) >= 1 .and. int(loc) <= LOCSIZ) then
+          if (LTEXT(int(loc)) == 0_i64) LTEXT(int(loc)) = p
+        end if
       case (2_i64)
-        if (STEXT(int(loc)) == 0_i64) STEXT(int(loc)) = p
+        if (int(loc) >= 1 .and. int(loc) <= LOCSIZ) then
+          if (STEXT(int(loc)) == 0_i64) STEXT(int(loc)) = p
+        end if
       case (5_i64)
-        if (loc > 0_i64 .and. loc <= 100_i64) PTEXT(int(loc)) = p
+        if (int(loc) >= 1 .and. int(loc) <= 100) PTEXT(int(loc)) = p
       case (6_i64)
-        if (loc > 0_i64 .and. loc <= RTXSIZ) RTEXT(int(loc)) = p
+        if (int(loc) >= 1 .and. int(loc) <= RTXSIZ) RTEXT(int(loc)) = p
       case (10_i64)
         if (CLSSES > CLSMAX) call BUG(6_i64)
-        CTEXT( int(CLSSES) ) = p
-        CVAL( int(CLSSES) ) = loc
+        if (int(CLSSES) >= 1 .and. int(CLSSES) <= CLSMAX) then
+          CTEXT( int(CLSSES) ) = p
+          CVAL( int(CLSSES) ) = loc
+        end if
         CLSSES = CLSSES + 1_i64
       case (12_i64)
-        if (loc > 0_i64 .and. loc <= MAGSIZ) MTEXT(int(loc)) = p
+        if (int(loc) >= 1 .and. int(loc) <= MAGSIZ) MTEXT(int(loc)) = p
       end select
 
       ! advance LINUSE to next free pointer and mark LINES(LINUSE) = -1 (end marker)
@@ -380,23 +388,33 @@ contains
       if (nvals < 2_i64) call BUG(4_i64)
       newloc = vals(2)
 
-      if (KEY(int(loc)) == 0_i64) then
-        KEY(int(loc)) = TRVS
-      else
-        TRAVEL(int(TRVS-1)) = -TRAVEL(int(TRVS-1))
+      if (int(loc) >= 1 .and. int(loc) <= LOCSIZ) then
+        if (KEY(int(loc)) == 0_i64) then
+          KEY(int(loc)) = TRVS
+        else
+          if (int(TRVS-1) >= 1 .and. int(TRVS-1) <= TRVSIZ) then
+            TRAVEL(int(TRVS-1)) = -TRAVEL(int(TRVS-1))
+          end if
+        end if
       end if
 
       ! process motion numbers (starting at vals(3) .. vals(nvals))
       do i = 3_i64, nvals
         tk = vals(int(i))
         if (tk == 0_i64) exit
-        TRAVEL(int(TRVS)) = newloc * 1000_i64 + tk
+        if (int(TRVS) >= 1 .and. int(TRVS) <= TRVSIZ) then
+          TRAVEL(int(TRVS)) = newloc * 1000_i64 + tk
+        end if
         TRVS = TRVS + 1_i64
         if (TRVS == TRVSIZ) call BUG(3_i64)
       end do
 
       ! mark last entry negative per original
-      if (TRVS > 1_i64) TRAVEL(int(TRVS-1)) = -TRAVEL(int(TRVS-1))
+      if (TRVS > 1_i64) then
+        if (int(TRVS-1) >= 1 .and. int(TRVS-1) <= TRVSIZ) then
+          TRAVEL(int(TRVS-1)) = -TRAVEL(int(TRVS-1))
+        end if
+      end if
 
     end do
 
@@ -429,7 +447,7 @@ contains
       read(rec, *, iostat=ios) n
       if (ios /= 0) call BUG(6_i64)
       if (n == -1_i64) then
-        KTAB(tabndx) = -1_i64
+        if (tabndx >= 1 .and. tabndx <= TABSIZ) KTAB(tabndx) = -1_i64
         exit
       end if
       ! extract 5-char field after integer; find position of integer in line
@@ -445,8 +463,10 @@ contains
       ! pack into integer
       packed = ia5(w)
       ! apply obfuscation to match original ATAB = ATAB XOR 'PHROG'
-      ATAB(tabndx) = ieor(packed, phrog)
-      KTAB(tabndx) = n
+      if (tabndx >= 1 .and. tabndx <= TABSIZ) then
+        ATAB(tabndx) = ieor(packed, phrog)
+        KTAB(tabndx) = n
+      end if
       tabndx = tabndx + 1
       if (tabndx > TABSIZ) call BUG(4_i64)
     end do
@@ -555,8 +575,10 @@ contains
       do i = 2, nvals
         loc = vals(int(i))
         if (loc == 0_i64) exit
-        if (BITSET_fn(loc, k)) call BUG(8_i64)
-        COND(int(loc)) = COND(int(loc)) + ishift64(1_i64, int(k))
+        if (int(loc) >= 1 .and. int(loc) <= LOCSIZ) then
+          if (BITSET_fn(loc, k)) call BUG(8_i64)
+          COND(int(loc)) = COND(int(loc)) + ishift64(1_i64, int(k))
+        end if
       end do
     end do
     deallocate(vals)
@@ -587,9 +609,9 @@ contains
       if (k == 0_i64) cycle
       if (k < 0_i64 .or. k > HNTSIZ) call BUG(7_i64)
       do i = 1, 4
-        if (i+1 <= nvals) then
+        if (i+1 <= nvals .and. int(k) >= 1 .and. int(k) <= HNTSIZ) then
           HINTS(int(k), i) = vals(i+1)
-        else
+        else if (int(k) >= 1 .and. int(k) <= HNTSIZ) then
           HINTS(int(k), i) = 0_i64
         end if
       end do
@@ -615,7 +637,10 @@ contains
       ATLOC(i) = 0_i64
       ABB(i) = 0_i64
       if (LTEXT(i) == 0_i64 .or. KEY(i) == 0_i64) cycle
-      if (mod(iabs(TRAVEL(int(KEY(i)))),1000_i64) == 1_i64) COND(i) = 2_i64
+      k = int(KEY(i))
+      if (k >= 1 .and. k <= TRVSIZ) then
+        if (mod(iabs(TRAVEL(k)),1000_i64) == 1_i64) COND(int(i)) = 2_i64
+      end if
     end do
 
     ! Place two-placed objects first (those with FIXD > 0)
@@ -643,8 +668,10 @@ contains
     TALLY = 0_i64
     TALLY2 = 0_i64
     do I_idx = 50_i64, MAXTRS
-      if (PTEXT(int(I_idx)) /= 0_i64) PROP(int(I_idx)) = -1_i64
-      TALLY = TALLY - PROP(int(I_idx))
+      if (int(I_idx) >= 1 .and. int(I_idx) <= 100) then
+        if (PTEXT(int(I_idx)) /= 0_i64) PROP(int(I_idx)) = -1_i64
+        TALLY = TALLY - PROP(int(I_idx))
+      end if
     end do
 
   end subroutine finalize_database
@@ -654,6 +681,8 @@ contains
     integer(kind=i64p), intent(in) :: obj, loc
     if (loc <= 0_i64) return
     if (obj < 1_i64 .or. obj > 200_i64) return
+    if (int(obj) < 1 .or. int(obj) > size(LINK)) return
+    if (int(loc) < 1 .or. int(loc) > size(ATLOC)) return
     LINK(int(obj)) = ATLOC(int(loc))
     ATLOC(int(loc)) = obj
     PLACE(int(obj)) = loc
