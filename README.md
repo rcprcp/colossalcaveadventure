@@ -33,7 +33,9 @@ For a detailed history of the game see the homepage:
 | `advent.dat` | Game data file (rooms, objects, vocabulary, messages) |
 | `advent.mic` | PDP-10 TOPS-10 `.MIC` build script (historical) |
 | `advent.readme` | Original distribution notes (dated 3/18/96) |
-| `advent_f2023_full.f90` | Combined Fortran 2023 port: `advent_mod` + `compat_mod` |
+| `compat_mod.f90` | Portability utilities (`BUG`, `ishift64`, `bitset64`, `RAN`) – compile first |
+| `advent_f2023.f90` | Alternate copy of `compat_mod` (same content; canonical name is `compat_mod.f90`) |
+| `advent_f2023_full.f90` | Shared game data module (`advent_mod`) for the Fortran 2023 port |
 | `io_mod.f90` | I/O module for the modern port |
 | `data_mod.f90` | Data-structure routines (`VOCAB`, `MOVE`, `CARRY`, …) |
 | `section_parsers.f90` | Database-section parsers for the modern port |
@@ -78,13 +80,14 @@ Compile the source files in the following order (as documented in
 `advent_main.f90`):
 
 ```sh
-gfortran -c advent_f2023_full.f90   # compiles advent_mod + compat_mod
+gfortran -c compat_mod.f90          # compiles compat_mod (utilities: BUG, ishift64, bitset64, RAN)
+gfortran -c advent_f2023_full.f90   # compiles advent_mod (shared game data)
 gfortran -c io_mod.f90
 gfortran -c data_mod.f90
 gfortran -c section_parsers.f90
 gfortran -c game_mod.f90
 gfortran -c advent_main.f90
-gfortran -o advent advent_f2023_full.o io_mod.o data_mod.o \
+gfortran -o advent compat_mod.o advent_f2023_full.o io_mod.o data_mod.o \
           section_parsers.o game_mod.o advent_main.o
 ```
 
