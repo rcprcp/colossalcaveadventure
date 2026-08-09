@@ -41,6 +41,7 @@ module advent_mod
   integer(kind=i64p) :: CLSSES = 1_i64
   integer(kind=i64p) :: OLDLOC = -1_i64
   integer(kind=i64p) :: TRVS = 1_i64
+  integer(kind=i64p) :: HNTMAX = 0_i64
 
   ! Logical flags
   logical :: DSEEN(6), BLKLIN, HINTED_LOGICAL, YES, START
@@ -458,37 +459,150 @@ contains
 
   end subroutine handle_vocabulary
 
-  subroutine handle_object_descriptions()
-    print '(A)', 'handle_object_descriptions: not yet implemented (WIP)'
-  end subroutine handle_object_descriptions
-
-  subroutine handle_rtext()
-    print '(A)', 'handle_rtext: not yet implemented (WIP)'
-  end subroutine handle_rtext
-
+  ! Section 7: object locations (PLAC/FIXD)
   subroutine handle_object_locations()
-    print '(A)', 'handle_object_locations: not yet implemented (WIP)'
+    character(len=256) :: rec
+    integer(kind=i64p), allocatable :: vals(:)
+    integer(kind=i64p) :: nvals
+    integer(kind=i64p) :: obj, j, k
+    integer :: ios
+
+    allocate(vals(4))
+    do
+      read(1, '(A)', iostat=ios) rec
+      if (ios /= 0) then
+        if (ios > 0) then
+          exit
+        else
+          call BUG(10_i64)
+        end if
+      end if
+      call parse_integers(rec, vals, 4_i64, nvals)
+      if (nvals == 0_i64) cycle
+      obj = vals(1)
+      if (obj == -1_i64) then
+        exit
+      end if
+      if (nvals >= 2_i64) then
+        j = vals(2)
+      else
+        j = 0_i64
+      end if
+      if (nvals >= 3_i64) then
+        k = vals(3)
+      else
+        k = 0_i64
+      end if
+      if (obj >= 1_i64 .and. obj <= 100_i64) then
+        PLAC(int(obj)) = j
+        FIXD(int(obj)) = k
+      end if
+    end do
+    deallocate(vals)
   end subroutine handle_object_locations
 
+  ! Section 8: action defaults (ACTSPK)
   subroutine handle_action_defaults()
-    print '(A)', 'handle_action_defaults: not yet implemented (WIP)'
+    character(len=256) :: rec
+    integer(kind=i64p), allocatable :: vals(:)
+    integer(kind=i64p) :: nvals
+    integer(kind=i64p) :: verb, j
+    integer :: ios
+
+    allocate(vals(4))
+    do
+      read(1, '(A)', iostat=ios) rec
+      if (ios /= 0) then
+        if (ios > 0) then
+          exit
+        else
+          call BUG(11_i64)
+        end if
+      end if
+      call parse_integers(rec, vals, 4_i64, nvals)
+      if (nvals == 0_i64) cycle
+      verb = vals(1)
+      if (verb == -1_i64) exit
+      if (nvals >= 2_i64) then
+        j = vals(2)
+      else
+        j = 0_i64
+      end if
+      if (verb >= 1_i64 .and. verb <= VRBSIZ) then
+        ACTSPK(int(verb)) = j
+      end if
+    end do
+    deallocate(vals)
   end subroutine handle_action_defaults
 
+  ! Section 9: liquids / COND bits
   subroutine handle_liquids()
-    print '(A)', 'handle_liquids: not yet implemented (WIP)'
+    character(len=256) :: rec
+    integer(kind=i64p), allocatable :: vals(:)
+    integer(kind=i64p) :: nvals
+    integer(kind=i64p) :: k, loc
+    integer :: ios, i
+
+    allocate(vals(22))
+    do
+      read(1, '(A)', iostat=ios) rec
+      if (ios /= 0) then
+        if (ios > 0) then
+          exit
+        else
+          call BUG(12_i64)
+        end if
+      end if
+      call parse_integers(rec, vals, 22_i64, nvals)
+      if (nvals == 0_i64) cycle
+      k = vals(1)
+      if (k == -1_i64) exit
+      if (k == 0_i64) cycle
+      do i = 2, nvals
+        loc = vals(int(i))
+        if (loc == 0_i64) exit
+        if (BITSET_fn(loc, k)) call BUG(8_i64)
+        COND(int(loc)) = COND(int(loc)) + ishift64(1_i64, int(k))
+      end do
+    end do
+    deallocate(vals)
   end subroutine handle_liquids
 
-  subroutine handle_class_messages()
-    print '(A)', 'handle_class_messages: not yet implemented (WIP)'
-  end subroutine handle_class_messages
-
+  ! Section 11: hints
   subroutine handle_hints()
-    print '(A)', 'handle_hints: not yet implemented (WIP)'
-  end subroutine handle_hints
+    character(len=256) :: rec
+    integer(kind=i64p), allocatable :: vals(:)
+    integer(kind=i64p) :: nvals
+    integer(kind=i64p) :: k
+    integer :: ios, i
 
-  subroutine handle_magic_messages()
-    print '(A)', 'handle_magic_messages: not yet implemented (WIP)'
-  end subroutine handle_magic_messages
+    allocate(vals(8))
+    do
+      read(1, '(A)', iostat=ios) rec
+      if (ios /= 0) then
+        if (ios > 0) then
+          exit
+        else
+          call BUG(13_i64)
+        end if
+      end if
+      call parse_integers(rec, vals, 8_i64, nvals)
+      if (nvals == 0_i64) cycle
+      k = vals(1)
+      if (k == -1_i64) exit
+      if (k == 0_i64) cycle
+      if (k < 0_i64 .or. k > HNTSIZ) call BUG(7_i64)
+      do i = 1, 4
+        if (i+1 <= nvals) then
+          HINTS(int(k), i) = vals(i+1)
+        else
+          HINTS(int(k), i) = 0_i64
+        end if
+      end do
+      HNTMAX = max(HNTMAX, k)
+    end do
+    deallocate(vals)
+  end subroutine handle_hints
 
   ! helper to convert integer iostat to string for messages
   pure function itoa(i) result(s)
