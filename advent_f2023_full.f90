@@ -1,7 +1,7 @@
 ! Full conversion attempt of advent.for to Fortran 2023 (stage 2 draft)
 module advent_mod
   use iso_fortran_env, only: int64
-  use compat_mod, only: i64, ishift64, bitset64, RAN, RSPEAK, SPEAK, PSPEAK, DROP, MOVE, CARRY, GETIN, A5TOA1, POOF, MAINT, BUG
+  use compat_mod, only: i64, ishift64, bitset64, RAN, RSPEAK, SPEAK, PSPEAK, MOVE, CARRY, GETIN, A5TOA1, POOF, MAINT, BUG
   implicit none
 
   integer, parameter :: i64p = i64
@@ -604,6 +604,67 @@ contains
     deallocate(vals)
   end subroutine handle_hints
 
+  ! Finalize database: build ATLOC/LINK lists, copy PLACE/FIXED, set forced-motion COND bits, init PROP and counts
+  subroutine finalize_database()
+    integer(kind=i64p) :: i, k, obj
+
+    ! Initialize link/atloc/place/prop arrays
+    do i = 1, 100
+      LINK(i) = 0_i64
+      LINK(i+100) = 0_i64
+      PLACE(i) = 0_i64
+      PROP(i) = 0_i64
+      FIXED(i) = FIXD(i)
+    end do
+    do i = 1, LOCSIZ
+      ATLOC(i) = 0_i64
+      ABB(i) = 0_i64
+      if (LTEXT(i) == 0_i64 .or. KEY(i) == 0_i64) cycle
+      if (mod(iabs(TRAVEL(int(KEY(i)))),1000_i64) == 1_i64) COND(i) = 2_i64
+    end do
+
+    ! Place two-placed objects first (those with FIXD > 0)
+    do i = 1, 100
+      k = 101_i64 - i
+      if (FIXD(int(k)) > 0_i64) then
+        call drop_internal(k+100_i64, FIXD(int(k)))
+        call drop_internal(k, PLAC(int(k)))
+      end if
+    end do
+
+    ! Now place remaining objects
+    do i = 1, 100
+      k = 101_i64 - i
+      PLACE(int(k)) = PLAC(int(k))
+      FIXED(int(k)) = FIXD(int(k))
+      if (PLAC(int(k)) /= 0_i64 .and. FIXD(int(k)) <= 0_i64) then
+        call drop_internal(k, PLAC(int(k)))
+      end if
+    end do
+
+    ! Initialize treasures tally
+    ! MAXTRS is defined in original; use 79 as original
+    integer(kind=i64p) :: MAXTRS, TALLY, TALLY2, I
+    MAXTRS = 79_i64
+    TALLY = 0_i64
+    TALLY2 = 0_i64
+    do I = 50_i64, MAXTRS
+      if (PTEXT(int(I)) /= 0_i64) PROP(int(I)) = -1_i64
+      TALLY = TALLY - PROP(int(I))
+    end do
+
+  end subroutine finalize_database
+
+  ! Internal drop implementation used during initialization to build LINK and ATLOC
+  subroutine drop_internal(obj, loc)
+    integer(kind=i64p), intent(in) :: obj, loc
+    if (loc <= 0_i64) return
+    if (obj < 1_i64 .or. obj > 200_i64) return
+    LINK(int(obj)) = ATLOC(int(loc))
+    ATLOC(int(loc)) = obj
+    PLACE(int(obj)) = loc
+  end subroutine drop_internal
+
   ! helper to convert integer iostat to string for messages
   pure function itoa(i) result(s)
     integer, intent(in) :: i
@@ -623,6 +684,8 @@ program advent_main
   print *, 'Reading ADVENT data file: ', trim(DATA_FILENAME)
 
   call read_database()
+
+  call finalize_database()
 
   ! temporary debug dump of travel entries for location 15
   call dump_travel_sample(KEY, TRAVEL, 15_int64)
