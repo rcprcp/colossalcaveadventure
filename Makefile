@@ -1,4 +1,4 @@
-FC ?= gfortran
+FC = gfortran
 PROGRAM := advent
 OBJS := compat_mod.o advent_f2023_full.o io_mod.o data_mod.o section_parsers.o game_mod.o advent_main.o
 
