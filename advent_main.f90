@@ -1,6 +1,7 @@
 ! Main program entry point for the Fortran 2023 ADVENT port.
 ! Build order (compile these in order):
-!   advent_f2023_full.f90   (advent_mod + compat_mod)
+!   compat_mod.f90          (compat_mod)
+!   advent_f2023_full.f90   (advent_mod)
 !   io_mod.f90
 !   data_mod.f90
 !   section_parsers.f90
