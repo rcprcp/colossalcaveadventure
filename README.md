@@ -36,6 +36,7 @@ For a detailed history of the game see the homepage:
 | `compat_mod.f90` | Portability utilities (`BUG`, `ishift64`, `bitset64`, `RAN`) – compile first |
 | `advent_f2023.f90` | Alternate copy of `compat_mod` (same content; canonical name is `compat_mod.f90`) |
 | `advent_f2023_full.f90` | Shared game data module (`advent_mod`) for the Fortran 2023 port |
+| `Makefile` | Clean build recipe that compiles modules in dependency order |
 | `io_mod.f90` | I/O module for the modern port |
 | `data_mod.f90` | Data-structure routines (`VOCAB`, `MOVE`, `CARRY`, …) |
 | `section_parsers.f90` | Database-section parsers for the modern port |
@@ -74,14 +75,20 @@ del advent.rel
 This repository also contains a clean Fortran 2023 port that compiles on any
 standard-conforming Fortran compiler (e.g., GFortran 13+ or Intel `ifx`).
 
-### Build order
+### Build
 
-Compile the source files in the following order (as documented in
-`advent_main.f90`):
+For a clean build from scratch, use the included makefile:
 
 ```sh
-gfortran -c compat_mod.f90          # compiles compat_mod (utilities: BUG, ishift64, bitset64, RAN)
-gfortran -c advent_f2023_full.f90   # compiles advent_mod (shared game data)
+make clean
+make
+```
+
+If you prefer to compile manually, build the source files in this order:
+
+```sh
+gfortran -c compat_mod.f90
+gfortran -c advent_f2023_full.f90
 gfortran -c io_mod.f90
 gfortran -c data_mod.f90
 gfortran -c section_parsers.f90
