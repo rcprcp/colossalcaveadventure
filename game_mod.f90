@@ -1,3 +1,4 @@
+
 ! game_mod.f90 – main game loop and action verb handlers
 !
 ! This is a structured Fortran 2023 port of the main program body in advent.for
@@ -849,7 +850,7 @@ contains
     case (15); call VB_DRINK()
     case (16); call VB_RUB()
     case (17); call VB_THROW()
-    case (18); call VB_QUIT()
+    case (18, 139); call VB_QUIT()		! + 139, BP
     case (19); call VB_FIND()
     case (20); call VB_INVENTORY()
     case (21); call VB_FEED()
@@ -863,6 +864,8 @@ contains
     case (29); call VB_WAKE()
     case (30); call RSPEAK(201_i64p)      ! SUSPEND (simplified)
     case (31); call RSPEAK(SPK)           ! HOURS
+
+    case (142, 51); call RSPEAK(142_i64p) ! added, BP
     case default
       if (OBJ == 0_i64p) then
         call BUG(23_i64p)
